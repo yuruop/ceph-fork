@@ -1,0 +1,22 @@
+{
+    "name": "Ceph-Build-Env",
+    "build": {
+        "dockerfile": "Dockerfile"
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-vscode.cpptools",
+                "ms-python.python",
+                "llvm-vs-code-extensions.vscode-clangd"
+            ]
+        }
+    },
+    "remoteUser": "root",
+    "mounts": [
+        "source=${localWorkspaceFolder},target=/workspaces/ceph,type=bind"
+    ],
+    "containerEnv": {
+        "CCACHE_DIR": "/workspaces/ceph/.ccache"
+    }
+}
