@@ -84,3 +84,4 @@ GTAGS
 /src/python-common/build/
 .cache
 ceph-build-deps_17.2.7-1_amd64.buildinfo
+install-deps-*

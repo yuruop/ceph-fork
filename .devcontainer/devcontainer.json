@@ -3,6 +3,13 @@
     "build": {
         "dockerfile": "Dockerfile"
     },
+    "mounts": [
+        "source=${localWorkspaceFolder},target=/workspaces/ceph,type=bind",
+        "source=${env:HOME}/.ssh,target=/root/.ssh,type=bind,readonly"
+    ],
+    "remoteEnv": {
+        "SSH_AUTH_SOCK": "/tmp/ssh-auth-sock"
+    },
     "customizations": {
         "vscode": {
             "extensions": [
