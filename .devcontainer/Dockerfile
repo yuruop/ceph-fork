@@ -4,7 +4,7 @@ FROM ubuntu:20.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 # 安装 Ceph 编译所需的基础依赖
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y apt-utils \
     git cmake make ccache g++ libssl-dev libboost-all-dev \
     libedit-dev libxml2-dev uuid-dev libaio-dev libsnappy-dev \
     liblz4-dev libcurl4-openssl-dev libkeyutils-dev libudev-dev \
