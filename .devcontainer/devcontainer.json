@@ -3,10 +3,6 @@
     "build": {
         "dockerfile": "Dockerfile"
     },
-    "mounts": [
-        "source=${localWorkspaceFolder},target=/workspaces/ceph,type=bind",
-        "source=${env:HOME}/.ssh,target=/root/.ssh,type=bind,readonly"
-    ],
     "remoteEnv": {
         "SSH_AUTH_SOCK": "/tmp/ssh-auth-sock"
     },
@@ -21,9 +17,9 @@
     },
     "remoteUser": "root",
     "mounts": [
-        "source=${localWorkspaceFolder},target=/workspaces/ceph,type=bind"
+        "source=${env:HOME}/.ssh,target=/root/.ssh,type=bind,readonly"
     ],
     "containerEnv": {
-        "CCACHE_DIR": "/workspaces/ceph/.ccache"
+        "CCACHE_DIR": "/workspaces/ceph-fork/.ccache"
     }
 }

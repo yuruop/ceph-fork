@@ -1649,6 +1649,13 @@ public:
 
   std::atomic<bool> initialized{false};
 
+    /// Optional callback invoked when per-op cache stats are available from
+  /// MOSDOpReply.  Called with (object_t, cache_hit_bytes, cache_miss_bytes,
+  /// onode_cache_hit) for each op.
+  using cache_stats_cb_t = fu2::unique_function<void(const object_t&, uint32_t,
+                                                      uint32_t, bool)>;
+  cache_stats_cb_t cache_stats_cb;
+
 private:
   std::atomic<uint64_t> last_tid{0};
   std::atomic<unsigned> inflight_ops{0};
@@ -1658,13 +1665,6 @@ private:
   std::atomic<int> global_op_flags{0}; // flags which are applied to each IO op
   bool keep_balanced_budget = false;
   bool honor_pool_full = true;
-
-  /// Optional callback invoked when per-op cache stats are available from
-  /// MOSDOpReply.  Called with (object_t, cache_hit_bytes, cache_miss_bytes,
-  /// onode_cache_hit) for each op.
-  using cache_stats_cb_t = fu2::unique_function<void(const object_t&, uint32_t,
-                                                      uint32_t, bool)>;
-  cache_stats_cb_t cache_stats_cb;
 
   // If this is true, accumulate a set of blocklisted entities
   // to be drained by consume_blocklist_events.

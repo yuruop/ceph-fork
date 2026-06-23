@@ -71,6 +71,8 @@ GTAGS
 
 .vscode
 
+.ccache
+
 # dashboard
 /src/pybind/mgr/dashboard/frontend/.protractor-report
 /src/pybind/mgr/dashboard/frontend/src/environments/environment.ts
