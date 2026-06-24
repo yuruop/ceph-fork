@@ -48,7 +48,7 @@ function(build_opentelemetry)
   include(ExternalProject)
   ExternalProject_Add(
     opentelemetry-cpp
-    GIT_REPOSITORY https://github.com/ideepika/opentelemetry-cpp.git
+    GIT_REPOSITORY git@github.com:ideepika/opentelemetry-cpp.git
     GIT_TAG wip-ceph
     GIT_SHALLOW 1
     SOURCE_DIR ${opentelemetry_SOURCE_DIR}

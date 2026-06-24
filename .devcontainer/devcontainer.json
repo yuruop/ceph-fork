@@ -3,9 +3,16 @@
     "build": {
         "dockerfile": "Dockerfile"
     },
-    "remoteEnv": {
-        "SSH_AUTH_SOCK": "/tmp/ssh-auth-sock"
+    "remoteUser": "root",
+    "mounts": [
+        "source=${localEnv:HOME}/.ssh,target=/root/.ssh,type=bind,consistency=cached"
+    ],
+    "containerEnv": {
+        "CCACHE_DIR": "/workspaces/ceph-fork/.ccache"
     },
+    "runArgs": [
+        "--network=host"
+    ],
     "customizations": {
         "vscode": {
             "extensions": [
@@ -14,12 +21,5 @@
                 "llvm-vs-code-extensions.vscode-clangd"
             ]
         }
-    },
-    "remoteUser": "root",
-    "mounts": [
-        "source=${env:HOME}/.ssh,target=/root/.ssh,type=bind,readonly"
-    ],
-    "containerEnv": {
-        "CCACHE_DIR": "/workspaces/ceph-fork/.ccache"
     }
 }

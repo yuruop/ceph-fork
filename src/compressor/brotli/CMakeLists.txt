@@ -7,7 +7,7 @@ set(brotli_sources
 include(ExternalProject)
 ExternalProject_Add(brotli_ext
   DOWNLOAD_DIR ${CMAKE_BINARY_DIR}/src/
-  GIT_REPOSITORY "https://github.com/google/brotli.git"
+  GIT_REPOSITORY "git@github.com:google/brotli.git"
   GIT_TAG "v1.0.7"
   GIT_SHALLOW TRUE
   SOURCE_DIR ${CMAKE_BINARY_DIR}/src/brotli

@@ -31,7 +31,7 @@ if(WITH_GTEST_PARALLEL)
     include(ExternalProject)
     ExternalProject_Add(gtest-parallel_ext
       SOURCE_DIR "${gtest_parallel_source_dir}"
-      GIT_REPOSITORY "https://github.com/google/gtest-parallel.git"
+      GIT_REPOSITORY "git@github.com:google/gtest-parallel.git"
       GIT_TAG "master"
       GIT_SHALLOW TRUE
       CONFIGURE_COMMAND ""

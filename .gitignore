@@ -87,3 +87,8 @@ GTAGS
 .cache
 ceph-build-deps_17.2.7-1_amd64.buildinfo
 install-deps-*
+
+# build artifacts
+obj-x86_64-linux-gnu/
+debian/
+src/boost
