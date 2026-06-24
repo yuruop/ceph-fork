@@ -10516,6 +10516,10 @@ int Client::_read_async(Fh *f, uint64_t off, uint64_t len, bufferlist *bl)
                  << " max_bytes=" << f->readahead.get_max_readahead_size()
                  << " max_periods=" << conf->client_readahead_max_periods << dendl;
 
+  // set pending cache inode so OSD cache stats callback routes to the right inode
+  _pending_cache_inode.store(in->ino, std::memory_order_relaxed);
+  _pending_cache_pool.store(in->layout.pool_id, std::memory_order_relaxed);
+
   // read (and possibly block)
   int r = 0;
   C_SaferCond onfinish("Client::_read_async flock");
@@ -10529,6 +10533,8 @@ int Client::_read_async(Fh *f, uint64_t off, uint64_t len, bufferlist *bl)
     put_cap_ref(in, CEPH_CAP_FILE_CACHE);
     update_read_io_size(bl->length());
   }
+
+  _pending_cache_inode.store(0, std::memory_order_relaxed);
 
   if(f->readahead.get_min_readahead_size() > 0) {
     pair<uint64_t, uint64_t> readahead_extent = f->readahead.update(off, len, in->size);
