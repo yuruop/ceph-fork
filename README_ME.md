@@ -7,6 +7,10 @@ Git Branch: cache
 主要针对BlueStore层的Onode Cache的缓存替换算法做了S3FIFO的修改与适配
 同时增加了客户端层面关于文件更细粒度的缓存命中统计
 
+apt install tmux -y
+tmux new -s ceph-build
+tmux attach -t ceph-build
+
 编译流程：
     cd ceph-fork
     # 切换pip清华源
