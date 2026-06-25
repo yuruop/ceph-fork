@@ -584,12 +584,12 @@ void Client::dump_status(Formatter *f)
   }
 }
 
-void Client::record_cache_stats(inodeno_t ino, int64_t pool_id,
+void Client::record_cache_stats(inodeno_t ino, int64_t pool_id, const object_t& oid,
                                 bool onode_hit, uint64_t hit_bytes, uint64_t miss_bytes)
 {
   std::scoped_lock l(client_lock);
   auto& st = inode_cache_stats[ino];
-  st.record(onode_hit, hit_bytes, miss_bytes);
+  st.record(oid, onode_hit, hit_bytes, miss_bytes);
   auto& pst = pool_cache_stats[pool_id];
   pst.total_reads++;
   if (onode_hit) pst.onode_cache_hits++;
@@ -612,6 +612,21 @@ void Client::dump_cache_stats(Formatter *f, inodeno_t ino_filter)
       f->dump_int("buffer_hit_bytes", st.buffer_hit_bytes);
       f->dump_int("buffer_miss_bytes", st.buffer_miss_bytes);
       f->dump_float("buffer_hit_rate", st.buffer_hit_rate());
+      // per-object breakdown
+      f->open_array_section("objects");
+      for (auto& okv : st.objects) {
+        f->open_object_section("object");
+        auto& obj = okv.second;
+        f->dump_string("oid", okv.first.name);
+        f->dump_int("total_reads", obj.total_reads);
+        f->dump_int("onode_cache_hits", obj.onode_cache_hits);
+        f->dump_float("onode_hit_rate", obj.onode_hit_rate());
+        f->dump_int("buffer_hit_bytes", obj.buffer_hit_bytes);
+        f->dump_int("buffer_miss_bytes", obj.buffer_miss_bytes);
+        f->dump_float("buffer_hit_rate", obj.buffer_hit_rate());
+        f->close_section();
+      }
+      f->close_section();
     } else {
       f->dump_string("error", "no stats for this inode");
     }
@@ -627,6 +642,21 @@ void Client::dump_cache_stats(Formatter *f, inodeno_t ino_filter)
       f->dump_int("buffer_hit_bytes", st.buffer_hit_bytes);
       f->dump_int("buffer_miss_bytes", st.buffer_miss_bytes);
       f->dump_float("buffer_hit_rate", st.buffer_hit_rate());
+      // per-object breakdown
+      f->open_array_section("objects");
+      for (auto& okv : st.objects) {
+        f->open_object_section("object");
+        auto& obj = okv.second;
+        f->dump_string("oid", okv.first.name);
+        f->dump_int("total_reads", obj.total_reads);
+        f->dump_int("onode_cache_hits", obj.onode_cache_hits);
+        f->dump_float("onode_hit_rate", obj.onode_hit_rate());
+        f->dump_int("buffer_hit_bytes", obj.buffer_hit_bytes);
+        f->dump_int("buffer_miss_bytes", obj.buffer_miss_bytes);
+        f->dump_float("buffer_hit_rate", obj.buffer_hit_rate());
+        f->close_section();
+      }
+      f->close_section();
       f->close_section();
     }
     f->close_section();
@@ -656,7 +686,7 @@ void Client::_pre_init()
   // register cache stats callback to aggregate per-inode OSD cache hit rates
   objecter->cache_stats_cb = [this](const object_t& oid, uint32_t hit_bytes,
                                      uint32_t miss_bytes, bool onode_hit) {
-    _consume_pending_cache_stats(onode_hit, hit_bytes, miss_bytes);
+    _consume_pending_cache_stats(oid, onode_hit, hit_bytes, miss_bytes);
   };
 
   objectcacher->start();

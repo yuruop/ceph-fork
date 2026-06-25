@@ -1067,7 +1067,7 @@ protected:
 
   void dump_status(Formatter *f);  // debug
   void dump_cache_stats(Formatter *f, inodeno_t ino_filter = 0);
-  void record_cache_stats(inodeno_t ino, int64_t pool_id,
+  void record_cache_stats(inodeno_t ino, int64_t pool_id, const object_t& oid,
                           bool onode_hit, uint64_t hit_bytes, uint64_t miss_bytes);
 
   bool ms_dispatch2(const MessageRef& m) override;
@@ -1596,17 +1596,44 @@ private:
   uint64_t total_write_ops = 0;
   uint64_t total_write_size = 0;
 
-  // ---------- per-inode OSD cache stats ----------
-  struct InodeCacheStats {
-    uint64_t total_reads = 0;         // total read ops to this inode's objects
-    uint64_t onode_cache_hits = 0;    // reads where Onode was in OnodeCache
-    uint64_t buffer_hit_bytes = 0;    // bytes served from OSD Buffer Cache
-    uint64_t buffer_miss_bytes = 0;   // bytes requiring OSD disk I/O
+  // ---------- per-inode / per-object OSD cache stats ----------
+  // Per-object (RADOS object) cache hit statistics
+  struct ObjectCacheStats {
+    uint64_t total_reads = 0;
+    uint64_t onode_cache_hits = 0;
+    uint64_t buffer_hit_bytes = 0;
+    uint64_t buffer_miss_bytes = 0;
     void record(bool onode_hit, uint64_t hit_bytes, uint64_t miss_bytes) {
       total_reads++;
       if (onode_hit) onode_cache_hits++;
       buffer_hit_bytes += hit_bytes;
       buffer_miss_bytes += miss_bytes;
+    }
+    double onode_hit_rate() const {
+      return total_reads ? (double)onode_cache_hits / total_reads : 0.0;
+    }
+    double buffer_hit_rate() const {
+      uint64_t total = buffer_hit_bytes + buffer_miss_bytes;
+      return total ? (double)buffer_hit_bytes / total : 0.0;
+    }
+  };
+
+  // Per-inode aggregate: file-level totals + per-object breakdown
+  struct InodeCacheStats {
+    uint64_t total_reads = 0;         // total read ops to this inode's objects
+    uint64_t onode_cache_hits = 0;    // reads where Onode was in OnodeCache
+    uint64_t buffer_hit_bytes = 0;    // bytes served from OSD Buffer Cache
+    uint64_t buffer_miss_bytes = 0;   // bytes requiring OSD disk I/O
+    // per-object breakdown keyed by RADOS object name
+    std::map<object_t, ObjectCacheStats> objects;
+    void record(const object_t& oid, bool onode_hit,
+                uint64_t hit_bytes, uint64_t miss_bytes) {
+      total_reads++;
+      if (onode_hit) onode_cache_hits++;
+      buffer_hit_bytes += hit_bytes;
+      buffer_miss_bytes += miss_bytes;
+      auto& obj = objects[oid];
+      obj.record(onode_hit, hit_bytes, miss_bytes);
     }
     double onode_hit_rate() const {
       return total_reads ? (double)onode_cache_hits / total_reads : 0.0;
@@ -1631,12 +1658,12 @@ private:
   std::atomic<inodeno_t> _pending_cache_inode{0};
   std::atomic<int64_t>  _pending_cache_pool{0};
 
-  void _consume_pending_cache_stats(bool onode_hit,
+  void _consume_pending_cache_stats(const object_t& oid, bool onode_hit,
                                     uint64_t hit_bytes, uint64_t miss_bytes) {
     inodeno_t ino = _pending_cache_inode.load(std::memory_order_relaxed);
     int64_t pool = _pending_cache_pool.load(std::memory_order_relaxed);
     if (ino != 0) {
-      record_cache_stats(ino, pool, onode_hit, hit_bytes, miss_bytes);
+      record_cache_stats(ino, pool, oid, onode_hit, hit_bytes, miss_bytes);
     }
   }
   // -------------------------------------------------
