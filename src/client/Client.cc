@@ -597,6 +597,12 @@ void Client::record_cache_stats(inodeno_t ino, int64_t pool_id, const object_t& 
   pst.buffer_miss_bytes += miss_bytes;
 }
 
+void Client::_cleanup_cache_stats(inodeno_t ino)
+{
+  std::scoped_lock l(client_lock);
+  inode_cache_stats.erase(ino);
+}
+
 void Client::dump_cache_stats(Formatter *f, inodeno_t ino_filter)
 {
   ceph_assert(ceph_mutex_is_locked_by_me(client_lock));
@@ -14107,6 +14113,11 @@ int Client::_unlink(Inode *dir, const char *name, const UserPerm& perm)
 
   res = make_request(req, perm);
 
+  // clean up cache stats for the deleted inode
+  if (res == 0 && otherin) {
+    _cleanup_cache_stats(otherin->ino);
+  }
+
   trim_cache();
   ldout(cct, 8) << "unlink(" << path << ") = " << res << dendl;
   return res;
@@ -14182,6 +14193,11 @@ int Client::_rmdir(Inode *dir, const char *name, const UserPerm& perms)
   req->set_other_inode(in.get());
 
   res = make_request(req, perms);
+
+  // clean up cache stats for the deleted directory
+  if (res == 0 && in) {
+    _cleanup_cache_stats(in->ino);
+  }
 
   trim_cache();
   ldout(cct, 8) << "rmdir(" << path << ") = " << res << dendl;
