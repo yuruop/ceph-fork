@@ -1070,6 +1070,7 @@ protected:
   void record_cache_stats(inodeno_t ino, int64_t pool_id, const object_t& oid,
                           bool onode_hit, uint64_t hit_bytes, uint64_t miss_bytes);
   void _cleanup_cache_stats(inodeno_t ino);
+  void reset_cache_stats(Formatter *f, inodeno_t ino_filter = 0);
 
   bool ms_dispatch2(const MessageRef& m) override;
 

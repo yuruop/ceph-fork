@@ -235,6 +235,10 @@ int Client::CommandHook::call(
       int64_t ino_filter = 0;
       cmd_getval(cmdmap, "inode", ino_filter);
       m_client->dump_cache_stats(f, (inodeno_t)ino_filter);
+    } else if (command == "reset_cache_stats") {
+      int64_t ino_filter = 0;
+      cmd_getval(cmdmap, "inode", ino_filter);
+      m_client->reset_cache_stats(f, (inodeno_t)ino_filter);
     } else
       ceph_abort_msg("bad command registered");
   }
@@ -599,8 +603,31 @@ void Client::record_cache_stats(inodeno_t ino, int64_t pool_id, const object_t& 
 
 void Client::_cleanup_cache_stats(inodeno_t ino)
 {
-  std::scoped_lock l(client_lock);
+  // caller must hold client_lock (_unlink, _rmdir callers all hold it)
+  ceph_assert(ceph_mutex_is_locked_by_me(client_lock));
   inode_cache_stats.erase(ino);
+}
+
+void Client::reset_cache_stats(Formatter *f, inodeno_t ino_filter)
+{
+  std::scoped_lock l(client_lock);
+  if (ino_filter != 0) {
+    size_t n = inode_cache_stats.erase(ino_filter);
+    f->open_object_section("reset_cache_stats");
+    f->dump_int("cleared_inode", ino_filter);
+    f->dump_int("entries_removed", (int)n);
+    f->close_section();
+  } else {
+    size_t n_inodes = inode_cache_stats.size();
+    size_t n_pools = pool_cache_stats.size();
+    inode_cache_stats.clear();
+    pool_cache_stats.clear();
+    f->open_object_section("reset_cache_stats");
+    f->dump_string("status", "all cache stats cleared");
+    f->dump_int("inodes_cleared", (int)n_inodes);
+    f->dump_int("pools_cleared", (int)n_pools);
+    f->close_section();
+  }
 }
 
 void Client::dump_cache_stats(Formatter *f, inodeno_t ino_filter)
@@ -784,9 +811,16 @@ void Client::_finish_init()
     lderr(cct) << "error registering admin socket command: "
 	       << cpp_strerror(-ret) << dendl;
   }
+  ret = admin_socket->register_command("reset_cache_stats name=inode,type=CephInt,req=false",
+                                       &m_command_hook,
+                                       "clear OSD cache hit stats (all or specific inode)");
+  if (ret < 0) {
+    lderr(cct) << "error registering admin socket command: "
+               << cpp_strerror(-ret) << dendl;
+  }
 }
 
-void Client::shutdown() 
+void Client::shutdown()
 {
   ldout(cct, 1) << __func__ << dendl;
 
