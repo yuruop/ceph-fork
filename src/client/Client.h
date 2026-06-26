@@ -1665,7 +1665,14 @@ private:
     inodeno_t ino = _pending_cache_inode.load(std::memory_order_relaxed);
     int64_t pool = _pending_cache_pool.load(std::memory_order_relaxed);
     if (ino != 0) {
+      ldout(cct, 10) << __func__ << " ino=" << ino << " pool=" << pool
+                     << " oid=" << oid << " onode_hit=" << onode_hit
+                     << " hit_bytes=" << hit_bytes << " miss_bytes=" << miss_bytes
+                     << dendl;
       record_cache_stats(ino, pool, oid, onode_hit, hit_bytes, miss_bytes);
+    } else {
+      ldout(cct, 20) << __func__ << " dropped (no pending inode) oid=" << oid
+                     << " onode_hit=" << onode_hit << dendl;
     }
   }
   // -------------------------------------------------

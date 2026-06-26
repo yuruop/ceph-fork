@@ -592,6 +592,10 @@ void Client::record_cache_stats(inodeno_t ino, int64_t pool_id, const object_t& 
                                 bool onode_hit, uint64_t hit_bytes, uint64_t miss_bytes)
 {
   std::scoped_lock l(client_lock);
+  ldout(cct, 10) << __func__ << " ino=" << ino << " pool=" << pool_id
+                 << " oid=" << oid << " onode_hit=" << onode_hit
+                 << " hit_bytes=" << hit_bytes << " miss_bytes=" << miss_bytes
+                 << dendl;
   auto& st = inode_cache_stats[ino];
   st.record(oid, onode_hit, hit_bytes, miss_bytes);
   auto& pst = pool_cache_stats[pool_id];
