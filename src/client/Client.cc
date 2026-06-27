@@ -239,6 +239,14 @@ int Client::CommandHook::call(
       int64_t ino_filter = 0;
       cmd_getval(cmdmap, "inode", ino_filter);
       m_client->reset_cache_stats(f, (inodeno_t)ino_filter);
+    } else if (command == "cache_stats_toggle") {
+      bool enable = true;
+      if (cmd_getval(cmdmap, "enable", enable)) {
+        m_client->toggle_cache_stats(f, enable);
+      } else {
+        // no arg: show current status
+        m_client->toggle_cache_stats(f, m_client->_cache_stats_enabled.load());
+      }
     } else
       ceph_abort_msg("bad command registered");
   }
@@ -605,6 +613,16 @@ void Client::record_cache_stats(inodeno_t ino, int64_t pool_id, const object_t& 
   pst.buffer_miss_bytes += miss_bytes;
 }
 
+void Client::toggle_cache_stats(Formatter *f, bool enable)
+{
+  // caller must hold client_lock (admin socket handler already holds it)
+  ceph_assert(ceph_mutex_is_locked_by_me(client_lock));
+  _cache_stats_enabled.store(enable, std::memory_order_relaxed);
+  f->open_object_section("cache_stats_toggle");
+  f->dump_bool("enabled", enable);
+  f->close_section();
+}
+
 void Client::_cleanup_cache_stats(inodeno_t ino)
 {
   // caller must hold client_lock (_unlink, _rmdir callers all hold it)
@@ -614,7 +632,8 @@ void Client::_cleanup_cache_stats(inodeno_t ino)
 
 void Client::reset_cache_stats(Formatter *f, inodeno_t ino_filter)
 {
-  std::scoped_lock l(client_lock);
+  // caller must hold client_lock (admin socket handler already holds it)
+  ceph_assert(ceph_mutex_is_locked_by_me(client_lock));
   if (ino_filter != 0) {
     size_t n = inode_cache_stats.erase(ino_filter);
     f->open_object_section("reset_cache_stats");
@@ -818,6 +837,13 @@ void Client::_finish_init()
   ret = admin_socket->register_command("reset_cache_stats name=inode,type=CephInt,req=false",
                                        &m_command_hook,
                                        "clear OSD cache hit stats (all or specific inode)");
+  if (ret < 0) {
+    lderr(cct) << "error registering admin socket command: "
+               << cpp_strerror(-ret) << dendl;
+  }
+  ret = admin_socket->register_command("cache_stats_toggle name=enable,type=CephBool,req=false",
+                                       &m_command_hook,
+                                       "enable/disable cache stats collection, or show current status");
   if (ret < 0) {
     lderr(cct) << "error registering admin socket command: "
                << cpp_strerror(-ret) << dendl;
@@ -10609,6 +10635,7 @@ int Client::_read_async(Fh *f, uint64_t off, uint64_t len, bufferlist *bl)
   }
 
   _pending_cache_inode.store(0, std::memory_order_relaxed);
+  _pending_cache_pool.store(0, std::memory_order_relaxed);
 
   if(f->readahead.get_min_readahead_size() > 0) {
     pair<uint64_t, uint64_t> readahead_extent = f->readahead.update(off, len, in->size);
@@ -10700,6 +10727,7 @@ int Client::_read_sync(Fh *f, uint64_t off, uint64_t len, bufferlist *bl,
     int r = wait_and_copy(onfinish, tbl, wanted);
     client_lock.lock();
     _pending_cache_inode.store(0, std::memory_order_relaxed);
+    _pending_cache_pool.store(0, std::memory_order_relaxed);
     if (!r)
       return read;
     if (r < 0)
