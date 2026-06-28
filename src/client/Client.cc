@@ -599,7 +599,12 @@ void Client::dump_status(Formatter *f)
 void Client::record_cache_stats(inodeno_t ino, int64_t pool_id, const object_t& oid,
                                 bool onode_hit, uint64_t hit_bytes, uint64_t miss_bytes)
 {
-  std::scoped_lock l(client_lock);
+  // Use a SEPARATE lock, NOT client_lock.
+  // This function is called from the OSD reply path (via cache_stats_cb),
+  // which holds Objecter::rwlock.  If we tried to acquire client_lock here,
+  // we would deadlock against the read path that holds client_lock and then
+  // calls into Objecter (AB-BA deadlock).
+  std::scoped_lock l(cache_stats_lock);
   ldout(cct, 10) << __func__ << " ino=" << ino << " pool=" << pool_id
                  << " oid=" << oid << " onode_hit=" << onode_hit
                  << " hit_bytes=" << hit_bytes << " miss_bytes=" << miss_bytes
@@ -627,6 +632,7 @@ void Client::_cleanup_cache_stats(inodeno_t ino)
 {
   // caller must hold client_lock (_unlink, _rmdir callers all hold it)
   ceph_assert(ceph_mutex_is_locked_by_me(client_lock));
+  std::scoped_lock l(cache_stats_lock);
   inode_cache_stats.erase(ino);
 }
 
@@ -634,6 +640,7 @@ void Client::reset_cache_stats(Formatter *f, inodeno_t ino_filter)
 {
   // caller must hold client_lock (admin socket handler already holds it)
   ceph_assert(ceph_mutex_is_locked_by_me(client_lock));
+  std::scoped_lock l(cache_stats_lock);
   if (ino_filter != 0) {
     size_t n = inode_cache_stats.erase(ino_filter);
     f->open_object_section("reset_cache_stats");
@@ -656,6 +663,7 @@ void Client::reset_cache_stats(Formatter *f, inodeno_t ino_filter)
 void Client::dump_cache_stats(Formatter *f, inodeno_t ino_filter)
 {
   ceph_assert(ceph_mutex_is_locked_by_me(client_lock));
+  std::scoped_lock l(cache_stats_lock);
   f->open_object_section("cache_stats");
   if (ino_filter != 0) {
     auto it = inode_cache_stats.find(ino_filter);

@@ -1657,6 +1657,12 @@ private:
   };
   std::map<int64_t, PoolCacheStats> pool_cache_stats;
 
+  // separate mutex for cache stats to avoid deadlock with client_lock:
+  // record_cache_stats() is called from the OSD reply path (which holds
+  // Objecter::rwlock) and must NOT try to acquire client_lock, because
+  // the read path holds client_lock first and then calls into Objecter.
+  ceph::mutex cache_stats_lock = ceph::make_mutex("Client::cache_stats_lock");
+
   // side channel: set before a synchronous read to collect cache stats
   std::atomic<inodeno_t> _pending_cache_inode{0};
   std::atomic<int64_t>  _pending_cache_pool{0};
