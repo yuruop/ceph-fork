@@ -1028,7 +1028,8 @@ protected:
 			  ObjectContextRef *pobc,
 			  bool can_create,
 			  bool map_snapid_to_clone=false,
-			  hobject_t *missing_oid=NULL);
+			  hobject_t *missing_oid=NULL,
+			  bool *onode_cache_hit=NULL);
 
   void add_object_context_to_pg_stat(ObjectContextRef obc, pg_stat_t *stat);
 

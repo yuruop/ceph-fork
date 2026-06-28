@@ -2311,10 +2311,12 @@ void PrimaryLogPG::do_op(OpRequestRef& op)
              << dendl;
   }
 
+  bool obc_onode_cache_hit = false;
   int r = find_object_context(
     oid, &obc, can_create,
     m->has_flag(CEPH_OSD_FLAG_MAP_SNAP_CLONE),
-    &missing_oid);
+    &missing_oid,
+    &obc_onode_cache_hit);
 
   // LIST_SNAPS needs the ssc too
   if (obc &&
@@ -2333,6 +2335,13 @@ void PrimaryLogPG::do_op(OpRequestRef& op)
       return;
     }
   } else if (r == 0) {
+    // pre-set cache_onode_hit for ALL ops (reads will override with
+    // more precise BlueStore stats; writes keep this value)
+    if (obc_onode_cache_hit) {
+      for (auto& osd_op : m->ops) {
+        osd_op.cache_onode_hit = true;
+      }
+    }
     if (is_unreadable_object(obc->obs.oi.soid)) {
       dout(10) << __func__ << ": clone " << obc->obs.oi.soid
 	       << " is unreadable, waiting" << dendl;
@@ -11975,12 +11984,16 @@ int PrimaryLogPG::find_object_context(const hobject_t& oid,
 				      ObjectContextRef *pobc,
 				      bool can_create,
 				      bool map_snapid_to_clone,
-				      hobject_t *pmissing)
+				      hobject_t *pmissing,
+				      bool *onode_cache_hit)
 {
   FUNCTRACE(cct);
   ceph_assert(oid.pool == static_cast<int64_t>(info.pgid.pool()));
   // want the head?
   if (oid.snap == CEPH_NOSNAP) {
+    // check cache hit status BEFORE get_object_context (which may populate it)
+    if (onode_cache_hit)
+      *onode_cache_hit = (object_contexts.lookup(oid) != nullptr);
     ObjectContextRef obc = get_object_context(oid, can_create);
     if (!obc) {
       if (pmissing)

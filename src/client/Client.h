@@ -1670,8 +1670,10 @@ private:
 
   void _consume_pending_cache_stats(const object_t& oid, bool onode_hit,
                                     uint64_t hit_bytes, uint64_t miss_bytes) {
-    if (!_cache_stats_enabled.load(std::memory_order_relaxed))
+    bool enabled = _cache_stats_enabled.load(std::memory_order_relaxed);
+    if (!enabled) {
       return;
+    }
     inodeno_t ino = _pending_cache_inode.load(std::memory_order_relaxed);
     int64_t pool = _pending_cache_pool.load(std::memory_order_relaxed);
     if (ino != 0) {

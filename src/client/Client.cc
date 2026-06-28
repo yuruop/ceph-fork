@@ -605,6 +605,10 @@ void Client::record_cache_stats(inodeno_t ino, int64_t pool_id, const object_t& 
   // we would deadlock against the read path that holds client_lock and then
   // calls into Objecter (AB-BA deadlock).
   std::scoped_lock l(cache_stats_lock);
+  // DEBUG: always log to confirm stats are being collected
+  lderr(cct) << __func__ << " RECORDED: ino=" << ino << " oid=" << oid
+             << " onode_hit=" << onode_hit << " hit=" << hit_bytes
+             << " miss=" << miss_bytes << dendl;
   ldout(cct, 10) << __func__ << " ino=" << ino << " pool=" << pool_id
                  << " oid=" << oid << " onode_hit=" << onode_hit
                  << " hit_bytes=" << hit_bytes << " miss_bytes=" << miss_bytes
@@ -11008,6 +11012,10 @@ int64_t Client::_write(Fh *f, int64_t offset, uint64_t size, const char *buf,
     C_SaferCond onfinish("Client::_write flock");
     get_cap_ref(in, CEPH_CAP_FILE_BUFFER);
 
+    // set pending inode for OSD cache stats callback (onode hit tracking)
+    _pending_cache_inode.store(in->ino, std::memory_order_relaxed);
+    _pending_cache_pool.store(in->layout.pool_id, std::memory_order_relaxed);
+
     filer->write_trunc(in->ino, &in->layout, in->snaprealm->get_snap_context(),
 		       offset, size, bl, ceph::real_clock::now(), 0,
 		       in->truncate_size, in->truncate_seq,
@@ -11015,6 +11023,10 @@ int64_t Client::_write(Fh *f, int64_t offset, uint64_t size, const char *buf,
     client_lock.unlock();
     r = onfinish.wait();
     client_lock.lock();
+
+    _pending_cache_inode.store(0, std::memory_order_relaxed);
+    _pending_cache_pool.store(0, std::memory_order_relaxed);
+
     put_cap_ref(in, CEPH_CAP_FILE_BUFFER);
     if (r < 0)
       goto done;
