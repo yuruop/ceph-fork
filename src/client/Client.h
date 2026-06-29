@@ -1663,22 +1663,55 @@ private:
   // the read path holds client_lock first and then calls into Objecter.
   ceph::mutex cache_stats_lock = ceph::make_mutex("Client::cache_stats_lock");
 
-  // side channel: set before a synchronous read to collect cache stats
-  std::atomic<inodeno_t> _pending_cache_inode{0};
-  std::atomic<int64_t>  _pending_cache_pool{0};
-  std::atomic<bool>     _cache_stats_enabled{true};  // toggle on/off at runtime
+  std::atomic<bool> _cache_stats_enabled{true};  // toggle on/off at runtime
 
-  void _consume_pending_cache_stats(const object_t& oid, bool onode_hit,
-                                    uint64_t hit_bytes, uint64_t miss_bytes) {
-    bool enabled = _cache_stats_enabled.load(std::memory_order_relaxed);
-    if (!enabled) {
+  // inode → pool mapping: populated by IO paths (under client_lock + cache_stats_lock),
+  // consumed by OSD reply callback (under cache_stats_lock only).
+  // Keyed by inode because the callback parses inode from the CephFS data object
+  // name "<ino_hex>.<bno_hex>" carried in the reply's oid field.
+  std::map<inodeno_t, int64_t> inode_pool_map;
+
+  // Extract inode number from a CephFS data object name.
+  // Format: "<inode_hex>.<block_hex>" (see file_object_t::c_str)
+  // Returns 0 if the oid doesn't match this pattern.
+  static inodeno_t _parse_inode_from_oid(const object_t& oid) {
+    const auto& name = oid.name;
+    auto dot = name.find('.');
+    if (dot == std::string::npos || dot == 0 || dot == name.size() - 1)
+      return 0;
+    for (size_t i = 0; i < name.size(); i++) {
+      if (i == dot) continue;
+      char c = name[i];
+      if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+            (c >= 'A' && c <= 'F'))) return 0;
+    }
+    return static_cast<inodeno_t>(
+        std::stoull(name.substr(0, dot), nullptr, 16));
+  }
+
+  void _consume_cache_stats(const object_t& oid, bool onode_hit,
+                            uint64_t hit_bytes, uint64_t miss_bytes) {
+    if (!_cache_stats_enabled.load(std::memory_order_relaxed))
       return;
+
+    // Parse inode directly from the RADOS object name.
+    // CephFS data objects are named "<ino_hex>.<block_hex>" — no global
+    // side-channel needed, so concurrent IO cannot corrupt the mapping.
+    inodeno_t ino = _parse_inode_from_oid(oid);
+    if (ino == 0)
+      return;
+
+    int64_t pool = 0;
+    {
+      std::scoped_lock l(cache_stats_lock);
+      auto it = inode_pool_map.find(ino);
+      if (it != inode_pool_map.end())
+        pool = it->second;
     }
-    inodeno_t ino = _pending_cache_inode.load(std::memory_order_relaxed);
-    int64_t pool = _pending_cache_pool.load(std::memory_order_relaxed);
-    if (ino != 0) {
-      record_cache_stats(ino, pool, oid, onode_hit, hit_bytes, miss_bytes);
-    }
+    if (pool == 0)
+      return;
+
+    record_cache_stats(ino, pool, oid, onode_hit, hit_bytes, miss_bytes);
   }
   // -------------------------------------------------
 

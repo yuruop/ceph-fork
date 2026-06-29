@@ -605,10 +605,6 @@ void Client::record_cache_stats(inodeno_t ino, int64_t pool_id, const object_t& 
   // we would deadlock against the read path that holds client_lock and then
   // calls into Objecter (AB-BA deadlock).
   std::scoped_lock l(cache_stats_lock);
-  // DEBUG: always log to confirm stats are being collected
-  lderr(cct) << __func__ << " RECORDED: ino=" << ino << " oid=" << oid
-             << " onode_hit=" << onode_hit << " hit=" << hit_bytes
-             << " miss=" << miss_bytes << dendl;
   ldout(cct, 10) << __func__ << " ino=" << ino << " pool=" << pool_id
                  << " oid=" << oid << " onode_hit=" << onode_hit
                  << " hit_bytes=" << hit_bytes << " miss_bytes=" << miss_bytes
@@ -638,6 +634,7 @@ void Client::_cleanup_cache_stats(inodeno_t ino)
   ceph_assert(ceph_mutex_is_locked_by_me(client_lock));
   std::scoped_lock l(cache_stats_lock);
   inode_cache_stats.erase(ino);
+  inode_pool_map.erase(ino);
 }
 
 void Client::reset_cache_stats(Formatter *f, inodeno_t ino_filter)
@@ -647,6 +644,7 @@ void Client::reset_cache_stats(Formatter *f, inodeno_t ino_filter)
   std::scoped_lock l(cache_stats_lock);
   if (ino_filter != 0) {
     size_t n = inode_cache_stats.erase(ino_filter);
+    inode_pool_map.erase(ino_filter);
     f->open_object_section("reset_cache_stats");
     f->dump_int("cleared_inode", ino_filter);
     f->dump_int("entries_removed", (int)n);
@@ -656,6 +654,7 @@ void Client::reset_cache_stats(Formatter *f, inodeno_t ino_filter)
     size_t n_pools = pool_cache_stats.size();
     inode_cache_stats.clear();
     pool_cache_stats.clear();
+    inode_pool_map.clear();
     f->open_object_section("reset_cache_stats");
     f->dump_string("status", "all cache stats cleared");
     f->dump_int("inodes_cleared", (int)n_inodes);
@@ -754,7 +753,7 @@ void Client::_pre_init()
   // register cache stats callback to aggregate per-inode OSD cache hit rates
   objecter->cache_stats_cb = [this](const object_t& oid, uint32_t hit_bytes,
                                      uint32_t miss_bytes, bool onode_hit) {
-    _consume_pending_cache_stats(oid, onode_hit, hit_bytes, miss_bytes);
+    _consume_cache_stats(oid, onode_hit, hit_bytes, miss_bytes);
   };
 
   objectcacher->start();
@@ -10628,9 +10627,12 @@ int Client::_read_async(Fh *f, uint64_t off, uint64_t len, bufferlist *bl)
                  << " max_bytes=" << f->readahead.get_max_readahead_size()
                  << " max_periods=" << conf->client_readahead_max_periods << dendl;
 
-  // set pending cache inode so OSD cache stats callback routes to the right inode
-  _pending_cache_inode.store(in->ino, std::memory_order_relaxed);
-  _pending_cache_pool.store(in->layout.pool_id, std::memory_order_relaxed);
+  // register inode→pool mapping so OSD cache stats callback can
+  // resolve the pool from the inode parsed out of the reply oid
+  {
+    std::scoped_lock l(cache_stats_lock);
+    inode_pool_map[in->ino] = in->layout.pool_id;
+  }
 
   // read (and possibly block)
   int r = 0;
@@ -10646,8 +10648,7 @@ int Client::_read_async(Fh *f, uint64_t off, uint64_t len, bufferlist *bl)
     update_read_io_size(bl->length());
   }
 
-  _pending_cache_inode.store(0, std::memory_order_relaxed);
-  _pending_cache_pool.store(0, std::memory_order_relaxed);
+  // read stats recorded via Objecter callback (inode parsed from oid)
 
   if(f->readahead.get_min_readahead_size() > 0) {
     pair<uint64_t, uint64_t> readahead_extent = f->readahead.update(off, len, in->size);
@@ -10729,8 +10730,10 @@ int Client::_read_sync(Fh *f, uint64_t off, uint64_t len, bufferlist *bl,
     bufferlist tbl;
 
     int wanted = left;
-    _pending_cache_inode.store(in->ino, std::memory_order_relaxed);
-    _pending_cache_pool.store(in->layout.pool_id, std::memory_order_relaxed);
+    {
+      std::scoped_lock l(cache_stats_lock);
+      inode_pool_map[in->ino] = in->layout.pool_id;
+    }
     filer->read_trunc(in->ino, &in->layout, in->snapid,
 		      pos, left, &tbl, 0,
 		      in->truncate_size, in->truncate_seq,
@@ -10738,8 +10741,6 @@ int Client::_read_sync(Fh *f, uint64_t off, uint64_t len, bufferlist *bl,
     client_lock.unlock();
     int r = wait_and_copy(onfinish, tbl, wanted);
     client_lock.lock();
-    _pending_cache_inode.store(0, std::memory_order_relaxed);
-    _pending_cache_pool.store(0, std::memory_order_relaxed);
     if (!r)
       return read;
     if (r < 0)
@@ -11012,9 +11013,11 @@ int64_t Client::_write(Fh *f, int64_t offset, uint64_t size, const char *buf,
     C_SaferCond onfinish("Client::_write flock");
     get_cap_ref(in, CEPH_CAP_FILE_BUFFER);
 
-    // set pending inode for OSD cache stats callback (onode hit tracking)
-    _pending_cache_inode.store(in->ino, std::memory_order_relaxed);
-    _pending_cache_pool.store(in->layout.pool_id, std::memory_order_relaxed);
+    // register inode→pool mapping for OSD cache stats callback
+    {
+      std::scoped_lock l(cache_stats_lock);
+      inode_pool_map[in->ino] = in->layout.pool_id;
+    }
 
     filer->write_trunc(in->ino, &in->layout, in->snaprealm->get_snap_context(),
 		       offset, size, bl, ceph::real_clock::now(), 0,
@@ -11024,8 +11027,7 @@ int64_t Client::_write(Fh *f, int64_t offset, uint64_t size, const char *buf,
     r = onfinish.wait();
     client_lock.lock();
 
-    _pending_cache_inode.store(0, std::memory_order_relaxed);
-    _pending_cache_pool.store(0, std::memory_order_relaxed);
+    // stats recorded via Objecter callback (inode parsed from oid)
 
     put_cap_ref(in, CEPH_CAP_FILE_BUFFER);
     if (r < 0)
