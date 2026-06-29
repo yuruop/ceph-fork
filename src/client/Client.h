@@ -1677,7 +1677,9 @@ private:
   static inodeno_t _parse_inode_from_oid(const object_t& oid) {
     const auto& name = oid.name;
     auto dot = name.find('.');
-    if (dot == std::string::npos || dot == 0 || dot == name.size() - 1)
+    // Must have a dot, and the inode part must be 1-16 hex digits (uint64_t max)
+    if (dot == std::string::npos || dot == 0 || dot > 16 ||
+        dot == name.size() - 1)
       return 0;
     for (size_t i = 0; i < name.size(); i++) {
       if (i == dot) continue;
@@ -1702,13 +1704,16 @@ private:
       return;
 
     int64_t pool = 0;
+    bool found = false;
     {
       std::scoped_lock l(cache_stats_lock);
       auto it = inode_pool_map.find(ino);
-      if (it != inode_pool_map.end())
+      if (it != inode_pool_map.end()) {
         pool = it->second;
+        found = true;
+      }
     }
-    if (pool == 0)
+    if (!found)
       return;
 
     record_cache_stats(ino, pool, oid, onode_hit, hit_bytes, miss_bytes);
