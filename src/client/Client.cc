@@ -605,10 +605,6 @@ void Client::record_cache_stats(inodeno_t ino, int64_t pool_id, const object_t& 
   // we would deadlock against the read path that holds client_lock and then
   // calls into Objecter (AB-BA deadlock).
   std::scoped_lock l(cache_stats_lock);
-  // DEBUG: always log to confirm stats are being collected
-  lderr(cct) << __func__ << " RECORDED: ino=" << ino << " oid=" << oid
-             << " onode_hit=" << onode_hit << " hit=" << hit_bytes
-             << " miss=" << miss_bytes << dendl;
   ldout(cct, 10) << __func__ << " ino=" << ino << " pool=" << pool_id
                  << " oid=" << oid << " onode_hit=" << onode_hit
                  << " hit_bytes=" << hit_bytes << " miss_bytes=" << miss_bytes
