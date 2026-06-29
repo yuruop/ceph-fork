@@ -10,6 +10,7 @@ Git Branch: cache
 apt install tmux -y
 tmux new -s ceph-build
 tmux attach -t ceph-build
+git config --global url."git@github.com:".insteadOf "https://github.com/"
 
 编译流程：
     cd ceph-fork
@@ -51,16 +52,45 @@ foreach ($vm in $vms) {
 }
 
 虚拟机内部：
-    cd /tmp/ceph-debs
+Node1:
+    # 安装工具
+    apt install -y dpkg-dev apt-utils nginx
+    # 创建仓库目录
+    mkdir -p /var/www/html/ceph-repo
+    # 复制 deb 包
+    cp /tmp/ceph-debs/*.deb /var/www/html/ceph-repo/
+    # 生成仓库索引
+    cd /var/www/html/ceph-repo
+    dpkg-scanpackages . /dev/null | gzip -9c > Packages.gz
+    dpkg-scanpackages . > Packages
 
-    # 安装所有包
-    apt install -y ./*.deb
+    cat > /etc/nginx/sites-available/ceph-repo <<'EOF'
+    server {
+        listen 8080;
+        root /var/www/html;
+        autoindex on;
+    }
+    EOF
 
-    # 如果有依赖缺失
-    apt --fix-broken install -y
+    ln -s /etc/nginx/sites-available/ceph-repo /etc/nginx/sites-enabled/
+    nginx -t && systemctl restart nginx
 
-    # 验证安装成功
-    ceph --version
+    # 在所有节点执行
+    echo "deb [trusted=yes] http://192.168.100.11:8080/ceph-repo ./" \
+    > /etc/apt/sources.list.d/ceph-local.list
+
+    # 查找官方 ceph 源文件
+    ls /etc/apt/sources.list.d/ | grep ceph
+
+    # 禁用它（假设文件名为 ceph.list）
+    mv /etc/apt/sources.list.d/ceph.list /etc/apt/sources.list.d/ceph.list.bak
+
+    # 同样禁用 chacra 源
+    ls /etc/apt/sources.list.d/ | grep chacra
+    mv /etc/apt/sources.list.d/chacra*.list /tmp/
+
+    apt update
+    
 请务必确保linux虚拟机系统版本也为Ubuntu 20.04，保持版本一致
 
 Boost 安装下载太慢了
